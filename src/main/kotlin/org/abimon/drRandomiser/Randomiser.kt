@@ -6,15 +6,14 @@ import org.abimon.spiral.core.archives.IArchive
 import org.abimon.spiral.core.archives.WADArchive
 import org.abimon.spiral.core.data.CacheHandler
 import org.abimon.spiral.core.data.SpiralData
+import org.abimon.spiral.core.formats.OggFormat
 import org.abimon.spiral.core.formats.PAKFormat
 import org.abimon.spiral.core.formats.SpiralFormat
 import org.abimon.spiral.core.formats.TGAFormat
-import org.abimon.spiral.core.objects.CustomPak
-import org.abimon.spiral.core.objects.CustomWAD
-import org.abimon.spiral.core.objects.Pak
-import org.abimon.spiral.core.objects.WADFileEntry
+import org.abimon.spiral.core.objects.*
 import org.abimon.spiral.mvc.SpiralModel
 import org.abimon.spiral.mvc.SpiralModel.Command
+import org.abimon.spiral.mvc.startupSpiral
 import org.abimon.visi.io.DataSource
 import org.abimon.visi.io.FileDataSource
 import org.abimon.visi.io.question
@@ -74,9 +73,9 @@ object Randomiser {
                     }
 
                     if(config.randomiseSprites) {
-                        if(config.heatdeath) {
-                            val sprites = wad.wad.files.filter { (name) -> name.endsWith(".tga") }
-                            val spritesInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".pak") }.filter { entry -> hasFormat(Pak(entry), TGAFormat) }
+                        if(config.anarchy) {
+                            val sprites = wad.wad.files.filter { (name) -> name.endsWith(".tga") }.notExempt(config)
+                            val spritesInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".pak") }.filter { entry -> hasFormat(Pak(entry), TGAFormat) }.notExempt(config)
                             sprites.cache()
                             spritesInPAKs.cache()
 
@@ -95,14 +94,47 @@ object Randomiser {
                                 customWad.data(entry.name, cacheIn)
                             }
                         } else {
-                            val bustups = wad.wad.files.filter { entry -> entry.name.child.matches("bustup_\\d+_\\d+\\.tga".toRegex()) }
-                            val stands = wad.wad.files.filter { entry -> entry.name.child.matches("stand_\\d+_\\d+\\.tga".toRegex()) }
+                            val bustups = wad.wad.files.filter { entry -> entry.name.child.matches("bustup_\\d+_\\d+\\.tga".toRegex()) }.notExempt(config)
+                            val stands = wad.wad.files.filter { entry -> entry.name.child.matches("stand_\\d+_\\d+\\.tga".toRegex()) }.notExempt(config)
 
                             bustups.cache()
                             stands.cache()
 
                             bustups.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, bustups[random.nextInt(bustups.size)].name), name) }
                             stands.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, stands[random.nextInt(stands.size)].name), name) }
+                        }
+                    }
+
+                    if(config.randomiseMusic) {
+                        if(config.anarchy) {
+                            val sounds = wad.wad.files.filter { (name) -> name.endsWith(".ogg") }.notExempt(config)
+                            val soundsInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".ogg") }.filter { entry -> hasFormat(Pak(entry), OggFormat) }.notExempt(config)
+                            sounds.cache()
+                            soundsInPAKs.cache()
+
+                            val soundFiles: MutableList<DataSource> = ArrayList()
+                            soundFiles.addAll(sounds.map { (name) -> FileDataSource(File(RANDOMISER_CACHE, name)) })
+                            soundFiles.addAll(soundsInPAKs.flatMap { (name) -> allOfFormat(Pak(FileDataSource(File(RANDOMISER_CACHE, name))), OggFormat) })
+
+                            sounds.forEach { (name) -> customWad.data(name, soundFiles.removeAt(random.nextInt(soundFiles.size))) }
+                            soundsInPAKs.forEach { entry ->
+                                val (cacheOut, cacheIn) = CacheHandler.cacheStream()
+
+                                val customPak = replaceAllOfFormat(Pak(entry), OggFormat, soundFiles)
+
+                                cacheOut.use(customPak::compile)
+
+                                customWad.data(entry.name, cacheIn)
+                            }
+                        } else {
+                            val bgm = wad.wad.files.filter { entry -> entry.name.child.matches("dr\\d_bgm_hca.awb.\\d+\\.ogg".toRegex()) }.notExempt(config)
+                            val movie = wad.wad.files.filter { entry -> entry.name.child.matches("movie_\\d+\\.ogg".toRegex()) }.notExempt(config)
+
+                            bgm.cache()
+                            movie.cache()
+
+                            bgm.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, bgm[random.nextInt(bgm.size)].name), name) }
+                            movie.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, movie[random.nextInt(movie.size)].name), name) }
                         }
                     }
 
@@ -122,6 +154,11 @@ object Randomiser {
         } else {
             println("Aborted randomisation process")
         }
+    }
+
+    val resetConfig = Command("reset_randomiser_config") {
+        SpiralModel.putPluginData("XD-SO-RANDOM", RandomiserData())
+        println("Reset Randomiser config to default.")
     }
 
     fun hasFormat(pak: Pak, format: SpiralFormat): Boolean {
@@ -166,5 +203,20 @@ object Randomiser {
         }
 
         return customPak
+    }
+
+    inline fun <reified T: DataSource> List<T>.notExempt(config: RandomiserData): List<T> {
+        val reg = config.exempt.map { it.toRegex() }
+        when(T::class) {
+            WADFileEntry::class -> return filterNot { t -> reg.any { (t as WADFileEntry).name.matches(it) } }
+            PakFileEntry::class -> return filterNot { t -> reg.any { (t as PakFileEntry).name.matches(it) } }
+            else -> return this
+        }
+    }
+
+    @JvmStatic
+    fun main(args: Array<String>) {
+        DanganronpaRandomiser().enable(SpiralModel.imperator)
+        startupSpiral(args)
     }
 }

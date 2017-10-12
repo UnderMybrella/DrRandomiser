@@ -25,7 +25,7 @@ repositories {
 
 dependencies {
     compile "org.jetbrains.kotlin:kotlin-stdlib-jre8:$kotlin_version"
-    compile "org.abimon:KSPIRAL:61"
+    compile "org.abimon:KSPIRAL:63"
 }
 
 compileKotlin {
