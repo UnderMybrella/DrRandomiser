@@ -108,7 +108,7 @@ object Randomiser {
                     if(config.randomiseMusic) {
                         if(config.anarchy) {
                             val sounds = wad.wad.files.filter { (name) -> name.endsWith(".ogg") }.notExempt(config)
-                            val soundsInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".ogg") }.filter { entry -> hasFormat(Pak(entry), OggFormat) }.notExempt(config)
+                            val soundsInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".pak") }.filter { entry -> hasFormat(Pak(entry), OggFormat) }.notExempt(config)
                             sounds.cache()
                             soundsInPAKs.cache()
 
