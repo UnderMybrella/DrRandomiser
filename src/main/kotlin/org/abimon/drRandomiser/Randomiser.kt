@@ -18,6 +18,7 @@ import org.abimon.visi.io.DataSource
 import org.abimon.visi.io.FileDataSource
 import org.abimon.visi.io.question
 import org.abimon.visi.lang.child
+import org.abimon.visi.lang.isRegex
 import org.abimon.visi.lang.make
 import java.io.File
 import java.io.FileOutputStream
@@ -25,6 +26,7 @@ import java.nio.file.Files
 import java.nio.file.attribute.DosFileAttributeView
 import java.util.*
 import kotlin.collections.ArrayList
+import kotlin.system.measureTimeMillis
 
 @Suppress("unused")
 object Randomiser {
@@ -73,7 +75,7 @@ object Randomiser {
                     }
 
                     if(config.randomiseSprites) {
-                        if(config.anarchy) {
+                        if(config.anarchySprites) {
                             val sprites = wad.wad.files.filter { (name) -> name.endsWith(".tga") }.notExempt(config)
                             val spritesInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".pak") }.filter { entry -> hasFormat(Pak(entry), TGAFormat) }.notExempt(config)
                             sprites.cache()
@@ -106,7 +108,7 @@ object Randomiser {
                     }
 
                     if(config.randomiseMusic) {
-                        if(config.anarchy) {
+                        if(config.anarchyMusic) {
                             val sounds = wad.wad.files.filter { (name) -> name.endsWith(".ogg") }.notExempt(config)
                             val soundsInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".pak") }.filter { entry -> hasFormat(Pak(entry), OggFormat) }.notExempt(config)
                             sounds.cache()
@@ -138,17 +140,29 @@ object Randomiser {
                         }
                     }
 
-                    val tmpFile = File(SpiralModel.operating!!.absolutePath + ".tmp")
-                    val backupFile = File(SpiralModel.operating!!.absolutePath + ".backup")
-                    try {
-                        FileOutputStream(tmpFile).use(customWad::compile)
+//                    if(config.randomise.isNotEmpty()) {
+//                        for(pool in config.randomise) {
+//                            val randomPool = pool.map { path -> wad.wad.files.resolvePath(path) }.filterNotNull()
+//
+//
+//                        }
+//                    }
 
-                        if (backupFile.exists()) backupFile.delete()
-                        SpiralModel.operating!!.renameTo(backupFile)
-                        tmpFile.renameTo(SpiralModel.operating!!)
-                    } finally {
-                        tmpFile.delete()
+                    val time = measureTimeMillis {
+                        val tmpFile = File(SpiralModel.operating!!.absolutePath + ".tmp")
+                        val backupFile = File(SpiralModel.operating!!.absolutePath + ".backup")
+                        try {
+                            FileOutputStream(tmpFile).use(customWad::compile)
+
+                            if (backupFile.exists()) backupFile.delete()
+                            SpiralModel.operating!!.renameTo(backupFile)
+                            tmpFile.renameTo(SpiralModel.operating!!)
+                        } finally {
+                            tmpFile.delete()
+                        }
                     }
+
+                    println("Finished compiling in $time ms")
                 }
             }
         } else {
@@ -203,6 +217,40 @@ object Randomiser {
         }
 
         return customPak
+    }
+
+    val DataSource.localName: String
+        get() {
+            when(this) {
+                is WADFileEntry -> return this.name
+                is PakFileEntry -> return this.name
+                else -> return ""
+            }
+        }
+
+    fun List<WADFileEntry>.resolvePath(path: String): DataSource? {
+        val regex = if(path.isRegex()) path.toRegex() else null
+        val direct = firstOrNull { (name) -> name == path || (regex != null && name.matches(regex)) }
+
+        if(direct != null)
+            return direct
+
+        val pak = firstOrNull { (name) -> path.startsWith("$name/") } ?: return null
+
+        if(PAKFormat.isFormat(pak)) {
+            val components = path.replace("${pak.name}/", "").split('/')
+
+            var entry: DataSource = pak
+
+            for(filename in components) {
+                if(!PAKFormat.isFormat(entry)) return null
+                entry = Pak(entry).files.firstOrNull { (name) -> name == filename } ?: return null
+            }
+
+            return entry
+        }
+
+        return null
     }
 
     inline fun <reified T: DataSource> List<T>.notExempt(config: RandomiserData): List<T> {

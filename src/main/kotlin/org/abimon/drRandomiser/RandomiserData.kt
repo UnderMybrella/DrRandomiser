@@ -9,5 +9,7 @@ data class RandomiserData(
 
         val exempt: List<String> = listOf(".*font.*"),
 
-        val anarchy: Boolean = false
+        val anarchySprites: Boolean = false,
+        val anarchyText: Boolean = false,
+        val anarchyMusic: Boolean = false
 )
