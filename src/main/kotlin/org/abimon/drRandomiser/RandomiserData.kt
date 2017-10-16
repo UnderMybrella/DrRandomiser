@@ -4,6 +4,7 @@ data class RandomiserData(
         val randomiseSprites: Boolean = true,
         val randomiseText: Boolean = false,
         val randomiseMusic: Boolean = false,
+        val randomiseModels: Boolean = false,
 
         val randomise: List<List<String>> = emptyList(),
 
@@ -11,5 +12,6 @@ data class RandomiserData(
 
         val anarchySprites: Boolean = false,
         val anarchyText: Boolean = false,
-        val anarchyMusic: Boolean = false
+        val anarchyMusic: Boolean = false,
+        val anarchyModels: Boolean = false
 )

@@ -1,7 +1,6 @@
 package org.abimon.drRandomiser
 
 import com.fasterxml.jackson.module.kotlin.readValue
-import org.abimon.drRandomiser.Randomiser.notExempt
 import org.abimon.spiral.core.archives.ArchiveType
 import org.abimon.spiral.core.archives.FlatFileArchive
 import org.abimon.spiral.core.archives.IArchive
@@ -14,29 +13,26 @@ import org.abimon.spiral.core.write
 import org.abimon.spiral.mvc.SpiralModel
 import org.abimon.spiral.mvc.SpiralModel.Command
 import org.abimon.spiral.mvc.startupSpiral
-import org.abimon.spiral.util.OffsetInputStream
-import org.abimon.spiral.util.debug
-import org.abimon.spiral.util.trace
 import org.abimon.visi.collections.remove
-import org.abimon.visi.io.*
+import org.abimon.visi.io.DataSource
+import org.abimon.visi.io.FileDataSource
+import org.abimon.visi.io.question
 import org.abimon.visi.lang.and
 import org.abimon.visi.lang.child
 import org.abimon.visi.lang.isRegex
 import org.abimon.visi.lang.make
-import org.abimon.visi.util.zip.forEach
 import java.awt.Dimension
 import java.awt.geom.Dimension2D
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
-import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.attribute.DosFileAttributeView
 import java.util.*
-import java.util.zip.ZipInputStream
 import kotlin.collections.ArrayList
-import kotlin.collections.HashMap
-import kotlin.system.measureNanoTime
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.forEach
+import kotlin.collections.map
 import kotlin.system.measureTimeMillis
 
 @Suppress("unused")
@@ -70,6 +66,37 @@ object Randomiser {
         return FileDataSource(cached)
     }
 
+    val restore = Command("derandomise", "operate") {
+        when (operatingArchive.archiveType) {
+            ArchiveType.WAD -> {
+                val wad = (operatingArchive as WADArchive)
+                val customWad = make<CustomWAD> { wad(wad.wad) }
+
+                wad.wad.files.forEach { fileEntry ->
+                    val cache = File(RANDOMISER_CACHE, fileEntry.name)
+                    if(cache.exists())
+                        customWad.file(cache, fileEntry.name)
+                }
+
+                val time = measureTimeMillis {
+                    val tmpFile = File(SpiralModel.operating!!.absolutePath + ".tmp")
+                    val backupFile = File(SpiralModel.operating!!.absolutePath + ".backup")
+                    try {
+                        FileOutputStream(tmpFile).use(customWad::compile)
+
+                        if (backupFile.exists()) backupFile.delete()
+                        SpiralModel.operating!!.renameTo(backupFile)
+                        tmpFile.renameTo(SpiralModel.operating!!)
+                    } finally {
+                        tmpFile.delete()
+                    }
+                }
+
+                println("Finished compiling in $time ms")
+            }
+        }
+    }
+
     val randomise = Command("randomise", "operate") { (params) ->
         println("**WARNING**")
         println("The randomise function *will* screw with your data, potentially irreparably.")
@@ -77,8 +104,6 @@ object Randomiser {
 
         if (question("Do you wish to proceed (Y/n)? ", "Y")) {
             val config = randomiserData
-
-            println(config)
 
             when (operatingArchive.archiveType) {
                 ArchiveType.WAD -> {
@@ -159,6 +184,34 @@ object Randomiser {
 
                             bgm.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, bgm[random.nextInt(bgm.size)].name), name) }
                             movie.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, movie[random.nextInt(movie.size)].name), name) }
+                        }
+                    }
+
+                    if (config.randomiseModels) {
+                        if (config.anarchyModels) {
+                            val sprites = wad.wad.files.filter { (name) -> name.endsWith(".gmo") }.notExempt(config)
+                            val spritesInPAKs = wad.wad.files.filter { (name) -> name.endsWith(".pak") }.filter { entry -> hasFormat(Pak(entry), GMOModelFormat) }.notExempt(config)
+                            sprites.cache()
+                            spritesInPAKs.cache()
+
+                            val spriteFiles: MutableList<DataSource> = ArrayList()
+                            spriteFiles.addAll(sprites.map { (name) -> FileDataSource(File(RANDOMISER_CACHE, name)) })
+                            spriteFiles.addAll(spritesInPAKs.flatMap { (name) -> allOfFormat(Pak(FileDataSource(File(RANDOMISER_CACHE, name))), GMOModelFormat) })
+
+                            sprites.forEach { (name) -> customWad.data(name, spriteFiles.removeAt(random.nextInt(spriteFiles.size))) }
+                            spritesInPAKs.forEach { entry ->
+                                val (cacheOut, cacheIn) = CacheHandler.cacheStream()
+
+                                val customPak = replaceAllOfFormat(Pak(entry), GMOModelFormat, spriteFiles)
+
+                                cacheOut.use(customPak::compile)
+
+                                customWad.data(entry.name, cacheIn)
+                            }
+                        } else {
+                            val stands = wad.wad.files.filter { entry -> entry.name.child.matches("stand_\\d+_\\d+\\.gmo".toRegex()) }.notExempt(config)
+                            stands.cache()
+                            stands.forEach { (name) -> customWad.file(File(RANDOMISER_CACHE, stands[random.nextInt(stands.size)].name), name) }
                         }
                     }
 
